@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>3D Сцена - Ряд фигур + Вращающаяся GLB модель | Three.js</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0,0,0,0.6);
+            padding: 8px 15px;
+            border-radius: 8px;
+            pointer-events: none;
+            z-index: 10;
+            backdrop-filter: blur(5px);
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            border-left: 4px solid #ff9800;
+        }
+        #controls-note {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255,255,255,0.7);
+            background: rgba(0,0,0,0.5);
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-family: monospace;
+            pointer-events: none;
+            z-index: 10;
+        }
+        @media (max-width: 600px) {
+            #info { font-size: 10px; top: 10px; left: 10px; }
+            #controls-note { font-size: 8px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        🟩 Зелёный Куб | 🟠 Оранжевый Цилиндр | 🟨 Жёлтый Прямоугольник | 🎨 GLB модель (вращается)
+    </div>
+    <div id="controls-note">
+        🖱️ Управление камерой: Мышь / тачпад (OrbitControls)
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        // --- Инициализация сцены, камеры, рендерера ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111122);
+        scene.fog = new THREE.FogExp2(0x111122, 0.008);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(6, 5, 7); // Немного сместили камеру, чтобы все 4 объекта были в кадре
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        // --- Орбит контролы для управления камерой ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.autoRotate = false;
+        controls.enableZoom = true;
+        controls.enablePan = true;
+        controls.zoomSpeed = 1.2;
+        controls.panSpeed = 0.8;
+        controls.rotateSpeed = 1.0;
+        controls.target.set(0, 0, 0);
+        
+        // --- Освещение (оставляем как было, но добавим легкий fill с другой стороны для модели) ---
+        const ambientLight = new THREE.AmbientLight(0x404060);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(3, 5, 2);
+        directionalLight.castShadow = true;
+        directionalLight.receiveShadow = false;
+        directionalLight.shadow.mapSize.width = 1024;
+        directionalLight.shadow.mapSize.height = 1024;
+        scene.add(directionalLight);
+        
+        const backLight = new THREE.PointLight(0x556688, 0.5);
+        backLight.position.set(-2, 1, -3);
+        scene.add(backLight);
+        
+        const warmLight = new THREE.PointLight(0xffaa66, 0.6);
+        warmLight.position.set(2, 1.5, 1.5);
+        scene.add(warmLight);
+        
+        const fillLight = new THREE.PointLight(0x88aaff, 0.4);
+        fillLight.position.set(0, 1, 3);
+        scene.add(fillLight);
+        
+        // Дополнительный свет для модели справа, чтобы она была хорошо освещена
+        const rightLight = new THREE.PointLight(0xffaa88, 0.5);
+        rightLight.position.set(4, 1, 2);
+        scene.add(rightLight);
+        
+        // --- Вспомогательные элементы (сетка, оси) ---
+        const gridHelper = new THREE.GridHelper(14, 20, 0x88aaff, 0x335588);
+        gridHelper.position.y = -1.2;
+        gridHelper.material.transparent = true;
+        gridHelper.material.opacity = 0.35;
+        scene.add(gridHelper);
+        
+        const axesHelper = new THREE.AxesHelper(3.5);
+        axesHelper.material.transparent = true;
+        axesHelper.material.opacity = 0.12;
+        scene.add(axesHelper);
+        
+        // --- 1. Зелёный куб (позиция слева) ---
+        const cubeGeometry = new THREE.BoxGeometry(1.4, 1.4, 1.4);
+        const cubeMaterial = new THREE.MeshStandardMaterial({
+            color: 0x44cc44,
+            roughness: 0.3,
+            metalness: 0.1,
+            emissive: 0x116611,
+            emissiveIntensity: 0.15
+        });
+        const greenCube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+        greenCube.castShadow = true;
+        greenCube.receiveShadow = false;
+        greenCube.position.set(-3.2, 0, 0); // Сдвинули левее, чтобы освободить место для модели
+        scene.add(greenCube);
+        
+        // --- 2. Оранжевый цилиндр (центр) ---
+        const cylinderGeometry = new THREE.CylinderGeometry(0.9, 0.9, 1.6, 48);
+        const cylinderMaterial = new THREE.MeshStandardMaterial({
+            color: 0xff8800,
+            roughness: 0.4,
+            metalness: 0.2,
+            emissive: 0x442200,
+            emissiveIntensity: 0.1
+        });
+        const orangeCylinder = new THREE.Mesh(cylinderGeometry, cylinderMaterial);
+        orangeCylinder.castShadow = true;
+        orangeCylinder.position.set(0, 0, 0);
+        scene.add(orangeCylinder);
+        
+        // --- 3. Жёлтый прямоугольник (кубоид) (справа от центра, но левее модели) ---
+        const boxGeometry = new THREE.BoxGeometry(1.8, 1.0, 1.2);
+        const boxMaterial = new THREE.MeshStandardMaterial({
+            color: 0xffdd44,
+            roughness: 0.25,
+            metalness: 0.05,
+            emissive: 0x442200,
+            emissiveIntensity: 0.08
+        });
+        const yellowBox = new THREE.Mesh(boxGeometry, boxMaterial);
+        yellowBox.castShadow = true;
+        yellowBox.position.set(2.5, 0, 0); // Сдвинули, чтобы дать место модели справа
+        scene.add(yellowBox);
+        
+        // --- Точечные источники света для эффекта (привязаны к объектам) ---
+        const glowGreen = new THREE.PointLight(0x44ff44, 0.4, 4);
+        glowGreen.position.set(0, 0, 0.8);
+        greenCube.add(glowGreen);
+        
+        const glowOrange = new THREE.PointLight(0xffaa44, 0.4, 4);
+        glowOrange.position.set(0, 0.7, 0);
+        orangeCylinder.add(glowOrange);
+        
+        const glowYellow = new THREE.PointLight(0xffdd66, 0.4, 4);
+        glowYellow.position.set(0.6, 0.4, 0.5);
+        yellowBox.add(glowYellow);
+        
+        // --- 4. Загрузка GLB модели и размещение её в ряд (справа от жёлтого прямоугольника) ---
+        // ВАЖНО: Файл 524352.glb должен находиться в ТОЙ ЖЕ папке, что и этот HTML файл!
+        const loader = new GLTFLoader();
+        const modelPath = './52432531.glb'; // Относительный путь для GitHub Pages
+        
+        // Переменная для хранения модели, чтобы вращать её в анимации
+        let importedModel = null;
+        
+        loader.load(modelPath, 
+            (gltf) => {
+                importedModel = gltf.scene;
+                // Настройка материалов и теней
+                importedModel.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = false;
+                        // Можно слегка увеличить металличность для блеска, но не меняем сильно
+                        if (child.material) {
+                            child.material.roughness = 0.4;
+                            child.material.metalness = 0.3;
+                        }
+                    }
+                });
+                
+                // Размещаем модель в ряд с другими фигурами:
+                // Зелёный куб: x = -3.2 | Цилиндр: x = 0 | Жёлтый: x = 2.5 | Модель: x = 5.0
+                importedModel.position.set(5.0, -0.3, 0); 
+                // Немного приподнимаем/опускаем по необходимости, чтобы визуально стояла на одной линии с остальными
+                // Масштабируем, чтобы размер был сопоставим с другими объектами (подберите под вашу модель)
+                importedModel.scale.set(0.9, 0.9, 0.9);
+                
+                scene.add(importedModel);
+                console.log('✅ Модель успешно загружена и размещена в ряд!');
+                
+                // Показываем сообщение об успехе
+                const successMsg = document.createElement('div');
+                successMsg.style.position = 'absolute';
+                successMsg.style.bottom = '20px';
+                successMsg.style.right = '20px';
+                successMsg.style.backgroundColor = 'rgba(0,255,0,0.7)';
+                successMsg.style.color = 'white';
+                successMsg.style.padding = '5px 10px';
+                successMsg.style.borderRadius = '5px';
+                successMsg.style.fontSize = '12px';
+                successMsg.innerText = '✅ 3D модель загружена и вращается!';
+                document.body.appendChild(successMsg);
+                setTimeout(() => successMsg.remove(), 3000);
+            },
+            (xhr) => {
+                // Прогресс загрузки (логи в консоль при желании)
+                // console.log((xhr.loaded / xhr.total * 100) + '% загружено');
+            },
+            (error) => {
+                console.error('❌ Ошибка загрузки модели:', error);
+                const errorMsg = document.createElement('div');
+                errorMsg.style.position = 'absolute';
+                errorMsg.style.bottom = '20px';
+                errorMsg.style.right = '20px';
+                errorMsg.style.backgroundColor = 'rgba(255,0,0,0.8)';
+                errorMsg.style.color = 'white';
+                errorMsg.style.padding = '10px';
+                errorMsg.style.borderRadius = '5px';
+                errorMsg.style.fontSize = '12px';
+                errorMsg.style.maxWidth = '300px';
+                errorMsg.innerHTML = '❌ Ошибка: Файл 524352.glb не найден!<br><small>Поместите файл в ту же папку, что и HTML</small>';
+                document.body.appendChild(errorMsg);
+            }
+        );
+        
+        // --- Анимация и вращение объектов ---
+        let time = 0;
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            time += 0.016; // примерный дельта-тайм для пульсации свечения
+            
+            // Вращение зелёного куба
+            greenCube.rotation.y += 0.012;
+            greenCube.rotation.x += 0.007;
+            greenCube.rotation.z += 0.005;
+            
+            // Вращение оранжевого цилиндра
+            orangeCylinder.rotation.y += 0.015;
+            orangeCylinder.rotation.z += 0.008;
+            orangeCylinder.rotation.x += 0.004;
+            
+            // Вращение жёлтого прямоугольника (кубоида)
+            yellowBox.rotation.x += 0.010;
+            yellowBox.rotation.y += 0.012;
+            yellowBox.rotation.z += 0.006;
+            
+            // ВРАЩЕНИЕ GLB МОДЕЛИ ВОКРУГ СВОЕЙ ОСИ
+            // Модель крутится вокруг оси Y (вертикальной) и немного вокруг X/Z для динамики
+            if (importedModel) {
+                importedModel.rotation.y += 0.018;   // вращение вокруг вертикальной оси
+                importedModel.rotation.x += 0.008;   // небольшой наклон для красоты
+                importedModel.rotation.z += 0.005;
+            }
+            
+            // Пульсация точечных источников света
+            const pulse = Math.sin(time * 2) * 0.1;
+            glowGreen.intensity = 0.4 + pulse * 0.15;
+            glowOrange.intensity = 0.4 + Math.sin(time * 2.3) * 0.15;
+            glowYellow.intensity = 0.4 + Math.sin(time * 1.8) * 0.15;
+            
+            // Небольшая динамика у дополнительного света
+            if (rightLight) {
+                rightLight.intensity = 0.5 + Math.sin(time * 1.5) * 0.15;
+            }
+            
+            // Обновление контролов и рендер
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        animate();
+        
+        // --- Обработка изменения размера окна ---
+        window.addEventListener('resize', onWindowResize, false);
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        // --- Звёздный фон (дополнительная атмосфера) ---
+        const starGeometry = new THREE.BufferGeometry();
+        const starCount = 800;
+        const starPositions = new Float32Array(starCount * 3);
+        for (let i = 0; i < starCount; i++) {
+            starPositions[i*3] = (Math.random() - 0.5) * 200;
+            starPositions[i*3+1] = (Math.random() - 0.5) * 100;
+            starPositions[i*3+2] = (Math.random() - 0.5) * 80 - 40;
+        }
+        starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+        const starMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 0.1, transparent: true, opacity: 0.6 });
+        const stars = new THREE.Points(starGeometry, starMaterial);
+        scene.add(stars);
+        
+        function animateStars() {
+            stars.rotation.y += 0.0005;
+            stars.rotation.x += 0.0003;
+            requestAnimationFrame(animateStars);
+        }
+        animateStars();
+    </script>
+</body>
+</html>
